@@ -1,0 +1,9 @@
+{
+  "id": "gem-rush",
+  "name": "Gem Rush",
+  "blurb": "Grab gems, knock rivals away. Sixty-second rounds that never stop, and everyone who presses Play is in the same room.",
+  "players": { "min": 1, "max": 8 },
+  "roundSeconds": 60,
+  "entry": "src/main.ts",
+  "netplay": { "v": 1, "public": true, "movement": "owner" }
+}

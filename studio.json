@@ -1,0 +1,20 @@
+{
+  "name": "My Studio",
+  "slug": "my-studio",
+  "template": true,
+  "homie": {
+    "studio": "0.11.0",
+    "directory": "https://homie.rocks"
+  },
+  "cloudflare": {
+    "worker": "my-studio",
+    "d1": "my-studio-db",
+    "r2": null,
+    "accountId": null,
+    "domain": null,
+    "created": []
+  },
+  "stats": {
+    "share": false
+  }
+}

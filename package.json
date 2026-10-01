@@ -1,0 +1,32 @@
+{
+  "name": "super-game",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "homie-studio dev",
+    "build": "homie-studio build",
+    "deploy": "homie-studio deploy",
+    "check": "homie-studio check",
+    "studio": "homie-studio"
+  },
+  "devDependencies": {
+    "@homie-rocks/studio": "0.11.0",
+    "wrangler": "4.145.0"
+  },
+  "cloudflare": {
+    "label": "Homie studio",
+    "products": [
+      "Workers",
+      "D1",
+      "Durable Objects"
+    ],
+    "bindings": {
+      "STUDIO_NAME": {
+        "description": "Your studio's name, as its site shows it (for example **Night Owls**). Claude can change it later."
+      },
+      "DB": {
+        "description": "The studio's own database: finished rounds, the studio's own stats (counts, never a visitor) and its claim in the [homie.rocks](https://homie.rocks/studios/) directory. Free plan."
+      }
+    }
+  }
+}

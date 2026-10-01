@@ -1,0 +1,9 @@
+{
+  "palette": "neon",
+  "bg": "#05070d",
+  "fg": "#dffcff",
+  "accent": "#ff3bd4",
+  "glow": "#00eaff",
+  "display": "ui-sans-serif, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif",
+  "radius": 18
+}

@@ -1,0 +1,72 @@
+// This studio's site on its own Cloudflare account (written by homie-studio). Everything here runs on
+// Cloudflare's Workers Free plan. `npm run deploy` (on this computer, or in Workers Builds) puts it live;
+// `npx wrangler preview` puts a branch on its own Preview URL with its own rooms. There is no R2 binding
+// until `homie-studio storage add` gives the studio storage for large media.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "super-game",
+  "main": "site/src/worker.mjs",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": [
+    "global_fetch_strictly_public"
+  ],
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": "./site/dist",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TABLE",
+        "class_name": "Table"
+      },
+      {
+        "name": "LOBBY",
+        "class_name": "Lobby"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "Table",
+        "Lobby"
+      ]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "my-studio-db",
+      "migrations_dir": "site/migrations","database_id": "88d243ef-50a7-4bac-b581-fa43b8417b8f"
+    }
+  ],
+  "vars": {
+    "STUDIO_NAME": "My Studio"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "previews": {
+    "vars": {
+      "STUDIO_NAME": "My Studio",
+      "HOMIE_PREVIEW": "1"
+    },
+    "durable_objects": {
+      "bindings": [
+        {
+          "name": "TABLE",
+          "class_name": "Table"
+        },
+        {
+          "name": "LOBBY",
+          "class_name": "Lobby"
+        }
+      ]
+    }
+  }
+}

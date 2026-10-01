@@ -1,0 +1,25 @@
+node_modules/
+# This computer's own state: the site's workers.dev address (it names the Cloudflare account, often after its owner).
+.studio/
+# This person's own Claude Code settings for this studio (the status line, for one).
+.claude/settings.local.json
+site/dist/
+site/.wrangler/
+.wrangler/
+.dev.vars
+.env
+*.log
+# Port checks: receipts and screenshots of each run (games/<id>/.port/check-*/).
+games/*/.port/
+# Screenshots from check and look runs.
+.checks/
+# Large media lives in this studio's storage (R2, after storage add) or is served by the site; the manifests beside it are committed.
+# Working files of the music and video skills (frames, captures, provider answers) stay on this computer.
+music/**/work/
+videos/**/work/
+music/**/*.wav
+music/**/*.mp3
+music/**/*.flac
+videos/**/*.mp4
+videos/**/*.mov
+videos/**/*.webm
