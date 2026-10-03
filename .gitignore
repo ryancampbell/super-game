@@ -23,3 +23,11 @@ music/**/*.flac
 videos/**/*.mp4
 videos/**/*.mov
 videos/**/*.webm
+
+# Performance runs (homie-studio perf, the perf skill): numbers, screenshots and CPU profiles of each run.
+.perf/
+# 3D: raw provider output, high-poly sources and Blender files stay on this computer (or the studio's R2): never shipped, never committed. The phone-sized model in games/<id>/public/models/ is committed.
+art/**/raw/
+*.blend
+*.blend1
+*.fbx

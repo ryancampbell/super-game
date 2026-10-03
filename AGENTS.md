@@ -11,12 +11,14 @@ directory lists its games; homie.rocks does not host them.
 
 | Path | What it is |
 | --- | --- |
-| `games/<id>/` | One game: `game.json` (id, name, blurb, players, round length), `index.html`, `src/main.ts`. |
-| `music/`, `videos/` | Songs, scores, loops; trailers, music videos, cutscenes. `manifest.json` lists each one (`node_modules/@homie-rocks/studio/media/MEDIA.md`); a published entry gets a page at `/music/<slug>/` or `/videos/<slug>/`, served from the site itself (files up to 25 MiB) or, for larger media, from the studio's storage once it has storage (see below; `npx --no-install homie-studio media put <file>`). Large files never go into git. The Homie plugin's `music` and `video` skills make them. |
+| `games/<id>/` | One game: `game.json` (id, name, blurb, players, round length), `index.html`, `src/main.ts`; and, when it has them, `tunables.json` (the numbers that shape how it feels: the Game Lab's sliders, kept values written back) and `lab.json` (the Game Lab's takes). |
+| `music/`, `videos/` | Songs, scores, loops; trailers, music videos, cutscenes. `manifest.json` lists each one (`node_modules/@homie-rocks/studio/media/MEDIA.md`); a published entry gets a page at `/music/<slug>/` or `/videos/<slug>/`. Without storage the site serves each file itself (up to 25 MiB). Once the studio has storage (see below), its big media (over 1 MiB, or left out of git) lives in its own R2: every deploy uploads it, checks it by SHA-256 and serves it from R2 at the same address. Large files never go into git. The Homie plugin's `music` and `video` skills make them. |
+| `games/<id>/assets/` | Every model and texture a game ships, with where it came from and its licence (`manifest.json`), and `RIGHTS.md` in plain words; `games/<id>/codex/decisions.json` (private, like the codex) is its look as decisions, and `style.json` the palette, fonts, light and camera the game draws with. `art/<slug>/` holds art jobs (concepts, receipts; `raw/` is git-ignored). |
 | `posts/` | The studio's news and drops: one markdown file each (`posts/2026-09-30-we-are-live.md`: `title:`, `date:`, `summary:`, and `game:` / `song:` / `video:` to link one). They are the site's Posts, with Atom and JSON feeds. |
 | `site/` | The studio's site: its look (`theme.json`), and anything of its own that wins over the generated pages (`site/README.md`); the Worker (`src/worker.mjs`) and its D1 migrations. |
 | `wrangler.jsonc` | The Worker's Cloudflare config (the Worker, D1, the Table and Lobby Durable Objects, and `previews` for branch Previews), at the root, where Cloudflare's Workers Builds reads it. A studio made before 0.10.0 keeps it in `site/` and deploys from a computer; every command finds either. |
 | `changes/` | One small file per change that went out through a pull request (`homie-studio progress pr` writes it): the site lists the newest, so the Claude app can tell when a merged change is live. |
+| `perf/` | Performance reports, one folder per game (the Homie plugin's `perf` skill): `README.md` (the goal, before and after with the noise, every change tried and why it was kept or reverted), `numbers.json` and `before-after/`. The raw runs, screenshots and CPU profiles stay in `.perf/`, which git ignores. |
 | `studio.json` | The studio's name, slug, Cloudflare resource names, custom domain and stats sharing. `.studio/` (git-ignored) is this computer's own state. |
 | `.claude/skills/` | Skills only this studio uses. Homie's own skills come from the Homie plugin. |
 
@@ -25,8 +27,11 @@ directory lists its games; homie.rocks does not host them.
 Use `npm run <script>` or `npx --no-install homie-studio <command>`: `--no-install` makes sure it is this
 studio's pinned copy, never a registry lookup of the bare name.
 
+- `npx --no-install homie-studio demo` — a live multiplayer game to try right now (on Homie Arcade, with
+  whoever is playing and bots in the empty seats). Nothing is copied into this studio.
 - `npx --no-install homie-studio game new <id> --from gem-rush --name "<Name>"` — a new game from a
-  multiplayer starter (one live public room from its first build, bots fill seats).
+  multiplayer starter (one live public room from its first build, bots fill seats). A new studio starts with no
+  game: copy a starter only when the person asks for one, or once their game is planned.
 - `npx --no-install homie-studio port plan <folder>` — read an existing single-player web game and grade
   how hard making it multiplayer will be; `port import` brings it into `games/`, `port check` runs the
   owner tests (real touch, a late joiner, a killed host, two browsers finishing a round). The Homie
@@ -38,6 +43,17 @@ studio's pinned copy, never a registry lookup of the bare name.
   never `pkill` by name, which stops other projects' dev servers too).
 - `npx --no-install homie-studio check <id> --url <site>` — two headless browsers press Play and must
   land in the same room and finish a round. Run it before you say a game works.
+- `npx --no-install homie-studio perf <id> --url <site>` — how fast a game runs, on a computer and an emulated
+  phone, with two browsers in a room (the host and a replica): frame times, the game's JavaScript and the main thread
+  per frame, time to playable, what it downloads, the heap, netplay messages a second (files under `.perf/`). The
+  Homie plugin's `perf` skill runs the whole loop: one change at a time, kept only when it is better beyond the noise
+  and `check` still passes, and a report in `perf/<id>/`.
+- `npx --no-install homie-studio lab <id>` — the Game Lab, on this computer (run it in the background; stop it with
+  `lab --stop`): one take of a move (`games/<id>/lab.json`) played in the working tree beside the last commit, on
+  one clock, slowed down or a frame at a time, with the phases, graphs and tunables the game reports
+  (`@homie-rocks/studio/lab`). `lab check <id>` plays it headless and writes the numbers and a contact sheet. The
+  Homie plugin's `lab` skill runs the whole loop: instrument and commit first, change how it feels, keep what the
+  person likes.
 - `npx --no-install homie-studio deploy --plan` — says what deploy will create on Cloudflare and what it
   costs, and changes nothing. Tell the person before the first deploy.
 - `npm run deploy` — the site on this studio's Cloudflare: one Worker, one D1 database, two
@@ -49,10 +65,16 @@ studio's pinned copy, never a registry lookup of the bare name.
   the D1 migrations and deploys (it never creates or refuses anything); on every other branch it runs
   `npm run build` and `npx wrangler preview`, a Preview URL with its own rooms. The live site claims itself
   in the homie.rocks directory the first time it is read, so nothing is stored by hand.
-- `npx --no-install homie-studio storage add` — only when the studio needs large media (songs,
-  videos): an R2 bucket for `media put`, served at `/media/<key>`. Cloudflare asks for a
-  payment method on the account before R2 works (its first 10 GB a month are free), so this
-  is a separate step the person agrees to; nothing else needs it.
+- `npx --no-install homie-studio storage add` — only when the studio has songs or videos: an R2
+  bucket on the studio's own Cloudflare account. Cloudflare asks for a payment method on the account
+  before R2 works, so this is a separate step the person agrees to; nothing else needs it. R2 has no
+  egress fees; storage is free up to 10 GB-month, then US$0.015 per GB-month.
+- `npx --no-install homie-studio media move` (`--dry-run` first) — with storage, the big files of
+  published songs and videos (over 1 MiB, or left out of git; studio.json `media.r2Over` changes the
+  size) go to R2: each is uploaded, read back and checked by SHA-256, and only then does the site stop
+  carrying it; it keeps its address, and the file stays in this folder. Every `npm run deploy` does
+  it too; once a file is in R2 (the committed manifest says so), a deploy from another computer or
+  Workers Builds still serves it. `media list` says where each file is served from.
 - `npx --no-install homie-studio publish` — list this studio's games in the homie.rocks directory
   (or call the Homie MCP tool `studio_publish`).
 - `npx --no-install homie-studio stats` — the studio's own numbers, for its owner: visits, Play presses,
@@ -62,6 +84,10 @@ studio's pinned copy, never a registry lookup of the bare name.
   `studio_stats` (never paste a key anywhere else). `stats share on` tells the directory two numbers
   (played this week). The site counts and never tracks: no cookie on a visitor, no person identified,
   nothing sent anywhere; house QA and `check` runs are not counted.
+- `npx --no-install homie-studio players` — how many players have accounts here (and guests, and who played
+  this week): counts and names for the owner, never a passkey or an email. `players owner` gives the owner a
+  one-time link that marks their own player account (a passkey on this site) as the owner's, so their games and
+  the studio's back office recognise them.
 - `npx --no-install homie-studio upgrade` — after pinning a newer `@homie-rocks/studio` (or through
   `npx -y --package=<its tarball> homie-studio upgrade`): what the newer template adds to this studio (AGENTS.md
   sections, READMEs, .gitignore lines) and what it keeps. It changes nothing until `--apply`, and never
@@ -73,8 +99,10 @@ studio's pinned copy, never a registry lookup of the bare name.
 (`node_modules/@homie-rocks/studio/site/SITE.md` says all of it):
 
 - **Sections, like homie.rocks:** Home (the featured game, live rooms, latest posts), Games, Music, Videos,
-  Rooms (every public room playing now, joinable) and Posts. A section with nothing in it has no tab, and its
+  Rooms (every public room playing now, joinable and watchable) and Posts. A section with nothing in it has no tab, and its
   page is not found.
+- **A new studio goes live with its Home only:** its name and "First game coming soon", with what is on the way
+  (games, posts, music and videos), until its first game, song or video is published. A post shows there at once.
 - **Every game gets a landing** at `/<id>/`: a full-bleed hero from the game's own footage
   (`games/<id>/hero/wide.mp4` and `tall.mp4`, or a trailer in `videos/` with `for.game`), else its cover
   with slow motion; the pitch, a big Play button into a public room, phone / computer / TV with the join code,
@@ -102,8 +130,29 @@ studio's pinned copy, never a registry lookup of the bare name.
   scoreboard or a bar is there, move it in game.json `"screen": { "share": … }`: a corner or `top-center`, per
   device (`desk`, `phone`, `sideways`), with an `x` / `y` offset in pixels, and `"label": false` to keep it
   a small icon (`node_modules/@homie-rocks/studio/site/SITE.md`). Look at it on a phone and a computer.
+- **Watch any player.** Every live room can be watched at `/<id>/watch?room=<room>` (each room on the Rooms page
+  and the landing has a Watch button): the game itself, drawn by the watcher's own browser, which never takes a
+  seat, with a strip of the players to switch between (a tap, keys 1-9, A for Auto, O for the whole room). Point the
+  camera and the HUD at `net.viewSeat` (your own seat when playing; the followed player when watching; null: the
+  overview camera; `room.viewBody()` in a port), and call `net.spotlight(seat)` on a hit, a kill or a goal so
+  Auto cuts to it (`NETPLAY.md` section 16). A game that never reads `viewSeat` is watched as its overview. A
+  game with hidden hands or roles says game.json `"watch": "overview"` (the whole room only) or `false` (no
+  watch door); a private or invite-only game is watched only by those it lets in.
 - Change a game in small steps, build, and look at it (`dev`, then `check`).
 - A game's id is its URL (`/<id>/`); keep it once published.
+- **Remixing.** A public game shares its source at `/games/<id>/source.json`, with who made it (the studio, the
+  game, its page) and the licence its owner picks in game.json `"license"`: `"remix-with-credit"` (the
+  default), `"remix-freely"` or `"no-remix"`, and `{ "kind": "…", "spdx": "MIT" }` to name a licence too.
+  `npx --no-install homie-studio game remix <source.json> --id <new id>` brings another studio's game in as a new
+  game here: its game.json `remixOf` says "Remix of <game> by <studio>" with a link back, and its landing and
+  credits show it; keep that credit. A game whose licence says no remix is refused.
+- **Progress that lasts** (a character, unlocks, a collection, days of play) goes in **saves**, never in the room:
+  a room forgets everything 60 s after its last player leaves. game.json `"saves": true` and
+  `createSaves` from `@homie-rocks/studio/saves` (`node_modules/@homie-rocks/studio/saves/SAVES.md`): per
+  player and game, versioned, offline-tolerant, in this studio's own D1. Pressing Play needs no account; a guest's
+  progress stays on that device until they make a passkey account (at `/account/`, or the game's own button), and
+  then it follows them to every device. Lifetime stats and a hardcore "hall of the fallen" are in it too. The
+  `ember-vale` starter shows the whole pattern.
 
 ## The Game Codex and progress
 
@@ -123,6 +172,89 @@ studio's pinned copy, never a registry lookup of the bare name.
   Cloudflare, Chrome, ffmpeg, GitHub, ElevenLabs, fal), what each unlocks, and the exact fix. Optional ones never
   block anything.
 
+## Art direction and models
+
+- **A game's look is a set of decisions** (`games/<id>/codex/decisions.json`, drawn in the codex's Art direction
+  tab): render style, palette, shape, proportions, materials, light, camera, fonts, effects; the cast, its library
+  family, scale and phone budgets. `npx --no-install homie-studio style init <id> --prompt "<the person's words>"`
+  picks every one automatically with a why. The person can steer one ("warmer"), lock one, or explore three
+  directions drawn by the game engine itself (`style board <id>`, free). The first asset built on a decision pins
+  it; a locked one changes only with the person's yes after `style blast` shows what goes stale and what remaking
+  it would cost. Nothing is ever remade by itself. The Homie plugin's `style` skill has the rest.
+- **Models come free first**: the engine, then Homie's CC0 starter library (`assets find "<words>"`, then
+  `assets add <id> <item>`, copied in, never hot-linked), then the person's own files (`assets add <id> --file …
+  --license …`), then generated props on the person's own fal account under a budget with receipts (the plugin's
+  `models` skill). Every model is checked (no external URIs, no oversized files), made phone-sized and recorded
+  with its licence; `RIGHTS.md` and the credits page follow. `assets check <id>` holds a game to the phone
+  budgets; `assets lineup <id>` shows everything at true scale. A three.js game loads models through
+  `@homie-rocks/studio/assets` (`createModels`); `game new <id> --from gem-rush-3d` starts one.
+- **Licences**: a public game ships only assets whose licence allows it (CC0, CC BY with credit, the studio's own,
+  generated); `publish` refuses an asset with no licence record. A remix gets each redistributable model,
+  checked by SHA-256, and a grey placeholder for the rest.
+
+## Running live games (the back office)
+
+- The owner runs the studio's live games from `/_studio/office` (`npx --no-install homie-studio office link` gives
+  the owner a one-time sign-in link): every live room of every game, who is in it (handles; accounts once players
+  sign in), bots, the round and uptime, refreshing by itself; Kick (that player cannot come back to that room for
+  the minutes chosen), Mute (their chat and emotes reach nobody), Announce (one line every player sees), Close a
+  room; and per game: launch state, Remixable, players per room and invites.
+- **Launch states:** `private` (only the owner, signed in; `office link --to /<id>/play` signs the owner's phone
+  in), `invite` (an invite-only beta: `office invite <id>` makes invite links and codes, each for one browser or
+  as many as `--uses` says), `public` (the default; listed). A game that is not public is in no list and not in
+  the directory manifest, so the directory drops it the next time it reads the studio. A new game stays private
+  from its first deploy with `"launch": "private"` in its game.json. **Remixable** publishes or withdraws its source.
+- The owner is recognised in their own games: signed in, their play page has a small Owner button (tap a player:
+  Mute, Kick; Announce). Nobody else's page has it.
+- **From the AI:** `npx --no-install homie-studio office` lists who is playing now; `office announce "<text>"` and
+  `office invite <id>` happen at once; `office kick`, `office mute`, `office close` and `office launch` only ASK, and print a
+  one-time link that opens the ask in the owner's own browser, where one tap does it. An ask is not done until the
+  owner tapped. `office key` gives a key for the Homie MCP's owner tools (`studio_office`, `room_announce`,
+  `room_kick`, `room_close`, `game_launch_state`), which ask the same way; never paste a key anywhere else.
+- A game can listen (`NETPLAY.md` section 15): `net.on('announce', …)`, `net.isMuted(seat)` to hide a muted
+  player's chat, and `net.pickPlayer(seat)` when a player is clicked (the owner's page opens their card).
+
+## Servers and AI seats
+
+- **A server** is a named, lasting pool of rooms for one game, with its own policy and door. Strangers are matched
+  only inside one server. Every game's `pub-N` rooms are its `public` server (Quick play), so old links keep
+  working. A server's page is `/<id>/s/<server>/`; its rooms are `s-<server>-<n>`; `/<id>/servers/` lists them.
+- **Policies:** `open` (anyone; an AI with an agent pass may sit, always marked AI), `humans-only` (no AI of any
+  kind; the game's bots are off unless `--bots fill`), `hybrid` (N seats in every room are AI companions),
+  `beginner` (accounts under 30 days, AI guides, quick lines only, optionally `--kids`: handles only, the AI's
+  level at most 3). **Doors:** `open`, `accounts` (a passkey account) or `invite` (`office invite` with
+  `--server`). AI is ALWAYS marked AI: every agent's name ends in " · AI", and the relay, not the game, enforces it.
+- `npx --no-install homie-studio servers` lists them; `servers new <id> "<Name>" --policy hybrid --ai 2` (or
+  `--policy beginner --guides 2 [--kids]`, `--policy humans-only`) makes one at once; `servers set <id> <server>
+  --level-max 3 …` changes one; `servers close <id> <server>`. A change that narrows who may come in (humans-only,
+  a stricter door) and closing one only ASK, with the owner's one-tap link, like `office kick`.
+- **The skill dial:** every room has a level, 1 Rookie, 2 Steady, 3 Fair, 4 Strong, 5 Maxed, each `{ reactionMs,
+  aimNoise, aggression, positioning }`. The party sets it by voting on a card in the play page (the middle vote
+  wins, capped by the server's ceiling). Make a game's bots honour it: `net.skillOf(slot)` in their step (the
+  snippet is in `NETPLAY.md` section 17; `BotBrain` from the port kit reads it with a rebuild), and declare
+  `caps: ['skill', 'agents']` in `createNetplay` (a game on `createRoom` has `agents` already). A build
+  from before 0.16.0 still plays on every server; the office says it predates servers until it is rebuilt.
+- **Agent passes:** `npx --no-install homie-studio agents pass <id> --label Claude [--server <server>]` gives an
+  AI its way into a seat (shown once; `agents revoke <pass>` ends it). It sits with `POST /<id>/api/agent`
+  (Bearer pass), only in a room with people in it, and never on a humans-only server.
+- **AI guides that talk (0.17.0):** a beginner server's guides get a brain. A game's own words for them are
+  `games/<id>/agents.json` (its vocabulary: goals, lines, the asks a player taps; the build checks it), and
+  `useAgents` from `@homie-rocks/studio/agents` is the host's side: a view per guide, the scripted floor, goals
+  for the hands, lines drawn from the vocabulary (`NETPLAY.md` section 18; Ember Vale is the reference). The
+  brain is the server's: `agents brain <id> <server> workers-ai` (the studio's own Workers AI; `npm run deploy`
+  binds it; at most `--budget` neurons a day, 8,000 by default) or `owner-key` (the owner's own key, set with
+  `agents brain key` on this computer, never in a chat; a dollar cap a day). The first time AI talk is turned on
+  it only ASKS. The AI never types: it picks a goal and a line id; the relay drops anything else. With no AI, over
+  budget, or between decisions, the game's `decide` plays. `agent_sit` (the local MCP) puts the owner's own
+  Claude in a guide's seat.
+
+## Continuing a build from the Claude app
+
+A Claude Code session started from the Claude app's card gets one short line, like
+`Continue building Night Owls: build hb_…`. `HANDOFF.md` says what to do with it:
+`npx --no-install homie-studio handoff hb_…` fetches the brief the person gave in the chat, takes the build (the
+chat's card follows the work from then on) and, for a studio still being set up, checks in from this repository.
+
 ## Rules
 
 - Keys stay in the providers' own logins (Wrangler, ElevenLabs, fal) or the OS
@@ -133,6 +265,11 @@ studio's pinned copy, never a registry lookup of the bare name.
   studio.json as `cloudflare.domain`.
 - A game's room size is its netplay manifest's `maxPlayers` (game.json `netplay`, or netplay.json), up to 32.
 - Nothing in this studio needs `~/.homie` or a Homie box.
+- Optional in studio.json: `"protect"` (globs of files the owner wants to look at before any change, such as
+  `"games/*/game.json"`) and `"budget"` (`{ "usd": <n>, "credits": <n> }`: the most the studio's media jobs spend
+  in all). In Claude Code, the Homie plugin's mod holds an edit to a protected file, a deploy, and a paid call past
+  the budget until the person says Proceed, and takes keys out of command output. When it refuses a call, say what
+  you meant to do and why; do not retry it unless the person asks.
 
 ## Beta
 
