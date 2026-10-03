@@ -1,1 +1,1 @@
-One folder per game. Start one with `npx --no-install homie-studio game new <id> --from gem-rush`.
+One folder per game. A new studio has none (its home page says "First game coming soon"). Start one with `npx --no-install homie-studio game new <id> --from gem-rush` when the person asks for a copy of the starter, or once their game is planned.

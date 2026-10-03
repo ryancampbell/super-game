@@ -3,7 +3,7 @@
   "slug": "my-studio",
   "template": true,
   "homie": {
-    "studio": "0.11.0",
+    "studio": "0.22.0",
     "directory": "https://homie.rocks"
   },
   "cloudflare": {
