@@ -38,7 +38,7 @@ const KNOCK_RANGE = 110;
 const KNOCK_SPEED = 950;
 const KNOCK_MS = 420;
 const ZONE_MS = 12_000;
-const PALETTE = ['#8fe36a', '#ffd166', '#ef6f6c', '#6cb4ee', '#c792ea', '#f4a261', '#2ec4b6', '#ff8fab', '#a7c957', '#e9c46a', '#90e0ef', '#f28482'];
+const PALETTE = ['#ff3bd4', '#b6ff3b', '#ffe23b', '#9d5cff', '#ff7a3b', '#3bffb0', '#ff3b6b', '#3b8bff', '#f6ff8a', '#ff9bf0']; // no cyan: that is the gems' colour
 const BOT_NAMES = ['Rook', 'Vex', 'Moth', 'Kilo', 'Juno', 'Pike', 'Nyx', 'Ash'];
 const botName = (slot: number): string => BOT_NAMES[slot % BOT_NAMES.length] as string;
 const label = (name: string, bot: boolean): string => (bot ? `${name} · bot` : name);
@@ -90,6 +90,10 @@ const mySeat = (): number | null => (net.offline ? 0 : net.seat);
 const drawn = new Map<number, { x: number; y: number; seat: number; score: number; slot: number }>();
 const waves: { x: number; y: number; at: number; colour: string; knock?: boolean }[] = [];
 let wavesSeen = 0;
+/** Neon look, drawn only: sparkles where a gem vanished, and a short light trail behind every body. */
+const sparks: { x: number; y: number; vx: number; vy: number; at: number; colour: string }[] = [];
+let lastGems = new Map<number, { x: number; y: number }>();
+const trails = new Map<number, { x: number; y: number }[]>();
 let knocksSeen = 0;
 let firstStateAt = 0;
 let firstSnapAt = 0;
@@ -528,11 +532,28 @@ addEventListener('resize', resize);
 resize();
 
 const cam = { x: W / 2, y: H / 2 };
-const gemGlow = (() => {
-  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R_GEM * 2.8);
-  g.addColorStop(0, 'rgba(255,209,102,0.55)'); g.addColorStop(0.4, 'rgba(255,170,60,0.18)'); g.addColorStop(1, 'rgba(255,150,40,0)');
+const halos = new Map<string, CanvasGradient>();
+/** A soft additive halo in one colour, radius 1 (scale it); cached per colour. */
+function halo(colour: string): CanvasGradient {
+  let g = halos.get(colour);
+  if (!g) {
+    g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    g.addColorStop(0, `${colour}aa`); g.addColorStop(0.35, `${colour}33`); g.addColorStop(1, `${colour}00`);
+    halos.set(colour, g);
+  }
   return g;
-})();
+}
+function glowAt(x: number, y: number, r: number, colour: string, alpha = 1): void {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
+  ctx.translate(x, y); ctx.scale(r, r); ctx.fillStyle = halo(colour);
+  ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+/** A line drawn twice: a wide faint pass and a thin bright one, which reads as neon tubing. */
+function neonStroke(colour: string, width: number): void {
+  ctx.strokeStyle = colour; ctx.globalAlpha = 0.25; ctx.lineWidth = width * 3; ctx.stroke();
+  ctx.globalAlpha = 1; ctx.lineWidth = width; ctx.stroke();
+}
 function draw(t: number): void {
   const cw = innerWidth; const ch = innerHeight;
   const phone = Math.min(cw, ch) <= 540;
@@ -542,48 +563,82 @@ function draw(t: number): void {
   cam.x += (target.x - cam.x) * 0.2; cam.y += (target.y - cam.y) * 0.2;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const bg = ctx.createRadialGradient(cw / 2, ch / 2, 0, cw / 2, ch / 2, Math.max(cw, ch) * 0.8);
-  bg.addColorStop(0, '#0d1426'); bg.addColorStop(1, '#04060c');
+  bg.addColorStop(0, '#120a24'); bg.addColorStop(0.6, '#070512'); bg.addColorStop(1, '#020208');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, ch);
 
   ctx.save();
   ctx.translate(cw / 2, ch / 2); ctx.scale(scale, scale); ctx.translate(-cam.x, -cam.y);
   // arena
-  ctx.strokeStyle = 'rgba(125,240,255,0.07)'; ctx.lineWidth = 1 / scale;
+  ctx.fillStyle = 'rgba(10,4,24,0.6)'; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(157,92,255,0.10)'; ctx.lineWidth = 1 / scale;
   ctx.beginPath();
-  for (let x = 0; x <= W; x += 100) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
-  for (let y = 0; y <= H; y += 100) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+  for (let x = 50; x < W; x += 100) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+  for (let y = 50; y < H; y += 100) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(125,240,255,0.55)'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(0,234,255,0.22)'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let x = 100; x < W; x += 100) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+  for (let y = 100; y < H; y += 100) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+  ctx.stroke();
+  // the arena wall: a magenta tube with a cyan inner line, breathing slowly
+  const breathe = 0.75 + 0.25 * Math.sin(t / 900);
+  ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.globalAlpha = breathe; neonStroke('#ff3bd4', 5); ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.rect(10, 10, W - 20, H - 20); neonStroke('#00eaff', 1.5);
   // hot zone (keyed state): gems inside score double
   if (zone) {
     const pulse = 0.5 + 0.5 * Math.sin(t / 300);
-    ctx.fillStyle = `rgba(255,120,190,${0.06 + 0.05 * pulse})`; ctx.beginPath(); ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,140,200,0.6)'; ctx.lineWidth = 3; ctx.setLineDash([14, 10]); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(255,170,215,0.85)'; ctx.font = '700 16px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('×2', zone.x, zone.y + 6);
+    glowAt(zone.x, zone.y, zone.r * 1.1, '#ff3bd4', 0.25 + 0.15 * pulse);
+    ctx.beginPath(); ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2);
+    ctx.lineDashOffset = -t / 40; ctx.setLineDash([14, 10]); neonStroke('#ff3bd4', 3); ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    ctx.fillStyle = '#ffd0f4'; ctx.font = '800 20px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff3bd4'; ctx.shadowBlur = 12; ctx.fillText('×2', zone.x, zone.y + 7); ctx.shadowBlur = 0;
   }
 
   // gems
   const gemList: { x: number; y: number; id: number }[] = hosting ? gems : (net.latest()?.d.g ?? []).map(([id, x, y]) => ({ id, x, y }));
+  const nowGems = new Map<number, { x: number; y: number }>();
   for (const g of gemList) {
+    nowGems.set(g.id, { x: g.x, y: g.y });
     const spin = t / 500 + g.id;
     const r = R_GEM * (1 + 0.12 * Math.sin(t / 200 + g.id));
-    ctx.save(); ctx.translate(g.x, g.y);
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = gemGlow; ctx.beginPath(); ctx.arc(0, 0, r * 2.6, 0, Math.PI * 2); ctx.fill();
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.rotate(spin);
-    ctx.fillStyle = '#ffd166'; ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r * 0.8, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.8, 0); ctx.closePath(); ctx.fill();
+    glowAt(g.x, g.y, r * 3.2, '#00eaff', 0.9);
+    ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(spin);
+    ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r * 0.8, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.8, 0); ctx.closePath();
+    ctx.fillStyle = 'rgba(0,234,255,0.35)'; ctx.fill();
+    ctx.lineJoin = 'round'; neonStroke('#7affff', 2.5);
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(-r * 0.2, -r * 0.3, r * 0.18, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   }
+  // a gem that was here last frame and is gone now was grabbed: sparkle where it was
+  if (lastGems.size - nowGems.size <= 3) { // not a round reset clearing the board
+    for (const [id, g] of lastGems) {
+      if (nowGems.has(id)) continue;
+      for (let k = 0; k < 14; k += 1) {
+        const a = (k / 14) * Math.PI * 2 + Math.random() * 0.4; const v = 120 + Math.random() * 220;
+        sparks.push({ x: g.x, y: g.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, at: t, colour: k % 3 === 0 ? '#ff3bd4' : k % 3 === 1 ? '#00eaff' : '#ffffff' });
+      }
+    }
+  }
+  lastGems = nowGems;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let i = sparks.length - 1; i >= 0; i -= 1) {
+    const p = sparks[i] as (typeof sparks)[number];
+    const age = (t - p.at) / 650;
+    if (age > 1 || sparks.length > 400) { sparks.splice(i, 1); continue; }
+    const d = (1 - (1 - age) * (1 - age)) * 0.65; // eases out
+    const x = p.x + p.vx * d; const y = p.y + p.vy * d;
+    ctx.globalAlpha = 1 - age; ctx.fillStyle = p.colour;
+    ctx.beginPath(); ctx.arc(x, y, 3.2 * (1 - age) + 0.8, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
 
   // waves
   for (let i = waves.length - 1; i >= 0; i -= 1) {
     const w = waves[i] as (typeof waves)[number];
     const age = (t - w.at) / 900;
     if (age > 1) { waves.splice(i, 1); continue; }
-    ctx.strokeStyle = w.colour; ctx.globalAlpha = 1 - age; ctx.lineWidth = w.knock ? 3 : 5;
-    ctx.beginPath(); ctx.arc(w.x, w.y, w.knock ? R_AV + 6 + age * 40 : R_AV + age * (KNOCK_RANGE + 10), 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(w.x, w.y, w.knock ? R_AV + 6 + age * 40 : R_AV + age * (KNOCK_RANGE + 10), 0, Math.PI * 2);
+    ctx.globalAlpha = 1 - age; neonStroke(w.colour, w.knock ? 2.5 : 4); ctx.globalAlpha = 1;
   }
 
   // avatars
@@ -598,17 +653,41 @@ function draw(t: number): void {
       list.push({ slot: d.slot, seat: d.seat >= 0 ? d.seat : null, x: mine && me.has ? me.x : d.x, y: mine && me.has ? me.y : d.y, bot: d.seat < 0, name: s?.name ?? (d.seat >= 0 ? `Player ${d.seat + 1}` : botName(d.slot)), mine });
     }
   }
+  const seen = new Set<number>();
   for (const a of list) {
     const colour = PALETTE[a.slot % PALETTE.length] as string;
-    ctx.globalAlpha = a.bot ? 0.62 : 1;
-    ctx.fillStyle = colour; ctx.beginPath(); ctx.arc(a.x, a.y, R_AV, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.arc(a.x, a.y, R_AV * 0.45, 0, Math.PI * 2); ctx.fill();
-    if (a.mine) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(a.x, a.y, R_AV + 7, 0, Math.PI * 2); ctx.stroke(); }
+    seen.add(a.slot);
+    // light trail: the last few positions, fading
+    let trail = trails.get(a.slot);
+    if (!trail) { trail = []; trails.set(a.slot, trail); }
+    const last = trail[trail.length - 1];
+    if (last && Math.hypot(a.x - last.x, a.y - last.y) > 200) trail.length = 0; // a respawn, not a dash
+    trail.push({ x: a.x, y: a.y }); if (trail.length > 10) trail.shift();
+    if (trail.length > 1) {
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round'; ctx.strokeStyle = colour;
+      for (let k = 1; k < trail.length; k += 1) {
+        const p0 = trail[k - 1] as { x: number; y: number }; const p1 = trail[k] as { x: number; y: number };
+        ctx.globalAlpha = (k / trail.length) * (a.bot ? 0.25 : 0.4); ctx.lineWidth = R_AV * 1.4 * (k / trail.length);
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    glowAt(a.x, a.y, R_AV * (a.mine ? 3.4 : 2.8), colour, a.bot ? 0.55 : 1);
+    ctx.globalAlpha = a.bot ? 0.7 : 1;
+    ctx.fillStyle = '#0a0614'; ctx.beginPath(); ctx.arc(a.x, a.y, R_AV, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(a.x, a.y, R_AV - 2, 0, Math.PI * 2); neonStroke(colour, 4);
+    ctx.fillStyle = colour; ctx.beginPath(); ctx.arc(a.x, a.y, R_AV * 0.32, 0, Math.PI * 2); ctx.fill();
+    if (a.mine) {
+      ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(t / 700);
+      ctx.beginPath(); ctx.arc(0, 0, R_AV + 8, 0, Math.PI * 2); ctx.setLineDash([10, 7]); neonStroke('#ffffff', 2.5); ctx.setLineDash([]);
+      ctx.restore();
+    }
     ctx.globalAlpha = 1;
-    ctx.font = `600 ${Math.round(15 / Math.max(0.6, scale))}px ui-sans-serif, system-ui, sans-serif`;
-    ctx.textAlign = 'center'; ctx.fillStyle = a.mine ? '#ffffff' : 'rgba(232,236,245,0.8)';
+    ctx.font = `700 ${Math.round(15 / Math.max(0.6, scale))}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.fillStyle = a.mine ? '#ffffff' : 'rgba(232,236,245,0.85)';
     ctx.fillText(a.mine ? 'You' : label(a.name, a.bot), a.x, a.y - R_AV - 12);
   }
+  for (const slot of trails.keys()) if (!seen.has(slot)) trails.delete(slot);
   ctx.restore();
 
   hud(cw, ch, phone, list);
@@ -626,11 +705,12 @@ function hud(cw: number, ch: number, phone: boolean, list: { slot: number; name:
   const top = pad + (debugStrip ? (phone ? 50 : 26) : 0);
   const now = net.now();
   const r = round;
-  ctx.textAlign = 'left'; ctx.fillStyle = '#e8ecf5';
-  ctx.font = `700 ${phone ? 20 : 24}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.textAlign = 'left'; ctx.fillStyle = '#dffcff'; ctx.shadowColor = '#00eaff'; ctx.shadowBlur = 10;
+  ctx.font = `800 ${phone ? 20 : 24}px ui-sans-serif, system-ui, sans-serif`;
   const left = r ? Math.max(0, Math.ceil((r.endsAt - now) / 1000)) : 0;
   const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
   ctx.fillText(r ? (r.phase === 'live' ? `Round ${r.n} · ${clock}` : `Next round in ${left}`) : 'Joining…', pad, top + 18);
+  ctx.shadowBlur = 0;
   // scores
   const scores = new Map<number, number>();
   if (hosting) for (const b of bodies.values()) scores.set(b.slot, b.score);
@@ -640,18 +720,20 @@ function hud(cw: number, ch: number, phone: boolean, list: { slot: number; name:
   ctx.textAlign = 'right';
   rows.forEach((a, i) => {
     ctx.fillStyle = a.mine ? '#ffffff' : a.bot ? 'rgba(232,236,245,0.55)' : 'rgba(232,236,245,0.85)';
+    ctx.shadowColor = PALETTE[a.slot % PALETTE.length] as string; ctx.shadowBlur = a.mine ? 10 : 6;
     ctx.fillText(`${a.mine ? 'You' : label(a.name, a.bot)}  ${scores.get(a.slot) ?? 0}`, cw - pad, top + 18 + i * (phone ? 20 : 22));
   });
+  ctx.shadowBlur = 0;
   // role badge
   ctx.textAlign = 'left'; ctx.font = '600 11px ui-monospace, Menlo, monospace'; ctx.fillStyle = 'rgba(125,240,255,0.7)';
   ctx.fillText(net.offline ? 'OFFLINE HOST' : net.role.toUpperCase(), pad, ch - pad);
   if (r && r.phase === 'over' && r.results) {
     const w = Math.min(360, cw - 40); const h = 44 + Math.min(6, r.results.length) * 26;
     const x = (cw - w) / 2; const y = (ch - h) / 2;
-    ctx.fillStyle = 'rgba(6,10,20,0.86)'; ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = 'rgba(125,240,255,0.5)'; ctx.strokeRect(x, y, w, h);
-    ctx.textAlign = 'center'; ctx.fillStyle = '#7df0ff'; ctx.font = '700 18px ui-sans-serif, system-ui, sans-serif';
-    ctx.fillText(`Round ${r.n} results`, cw / 2, y + 28);
+    ctx.fillStyle = 'rgba(10,4,24,0.9)'; ctx.fillRect(x, y, w, h);
+    ctx.beginPath(); ctx.rect(x, y, w, h); neonStroke('#ff3bd4', 2);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#7affff'; ctx.font = '800 18px ui-sans-serif, system-ui, sans-serif';
+    ctx.shadowColor = '#00eaff'; ctx.shadowBlur = 12; ctx.fillText(`Round ${r.n} results`, cw / 2, y + 28); ctx.shadowBlur = 0;
     ctx.font = '600 16px ui-sans-serif, system-ui, sans-serif';
     r.results.slice(0, 6).forEach((row, i) => {
       const mine = row.seat !== null && row.seat === mySeat();
