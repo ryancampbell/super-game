@@ -115,6 +115,9 @@ studio's pinned copy, never a registry lookup of the bare name.
 - **Cards and the directory** show each game's landing still (`hero/wide.jpg`), else its cover. A song without
   a cover of its own shows the music manifest's `cover`, else its game's still.
 - **Live rooms** are listed on homie.rocks too; studio.json `"rooms": { "share": false }` keeps them off it.
+- **Search engines and AI agents** read every page's schema.org data (a full VideoGame on each landing) and
+  `/robots.txt`, `/sitemap.xml`, `/llms.txt`, made from what is public. Give a game game.json `"genre"`, put
+  pictures of play in `games/<id>/screenshots/`, give each video a `"date"`, and never invent ratings.
 - Every page ends with "Made with Homie", linking to homie.rocks/studio/. Restyle it in `site/theme.css`; keep it.
 
 ## Making games
@@ -126,10 +129,16 @@ studio's pinned copy, never a registry lookup of the bare name.
 - Import it as `import { createNetplay } from '@homie-rocks/studio/netplay'`.
 - Phones and computers: touch controls on phones only, keys on computers; keep the
   centre of the screen clear during play.
-- The play page's small room button (Invite, Big screen, the room code) sits top right. If the game's
-  scoreboard or a bar is there, move it in game.json `"screen": { "share": … }`: a corner or `top-center`, per
-  device (`desk`, `phone`, `sideways`), with an `x` / `y` offset in pixels, and `"label": false` to keep it
-  a small icon (`node_modules/@homie-rocks/studio/site/SITE.md`). Look at it on a phone and a computer.
+- The play page's small room button (Invite, Big screen, the room code) sits top right, with the Chat pill
+  beside it (a round icon on a phone, as the room button is). If the game's scoreboard or a bar is there, move
+  both in game.json `"screen": { "share": … }`: a corner or `top-center`, per device (`desk`, `phone`,
+  `sideways`), with an `x` / `y` offset in pixels, and `"label": false` to keep them small icons
+  (`node_modules/@homie-rocks/studio/site/SITE.md`). Room chat's strip of new lines shows for a moment at the
+  bottom left: if the game's HUD or controls are there, `"screen": { "chat": … }` puts it where the game has
+  room (`at`: a corner, `top-center` or `bottom-center`; `x` / `y`; per device, and `tv` for the big
+  screen), or `"lines": "sheet-only"` keeps new lines in the Chat sheet, the pill counting them, so a game with
+  a busy HUD keeps typed chat (`node_modules/@homie-rocks/studio/chat/CHAT.md`). Look at both on a phone and a
+  computer while a round is on and somebody says something.
 - **Watch any player.** Every live room can be watched at `/<id>/watch?room=<room>` (each room on the Rooms page
   and the landing has a Watch button): the game itself, drawn by the watcher's own browser, which never takes a
   seat, with a strip of the players to switch between (a tap, keys 1-9, A for Auto, O for the whole room). Point the
@@ -188,6 +197,13 @@ studio's pinned copy, never a registry lookup of the bare name.
   with its licence; `RIGHTS.md` and the credits page follow. `assets check <id>` holds a game to the phone
   budgets; `assets lineup <id>` shows everything at true scale. A three.js game loads models through
   `@homie-rocks/studio/assets` (`createModels`); `game new <id> --from gem-rush-3d` starts one.
+- **Characters and clips**: an animated library character (`assets find "knight" --kind character`) comes in
+  phone-sized, one draw call, its bones named by the skeleton standard, its clips in one shared clip library per
+  skeleton (`public/anims/<skeleton>.glb`); `anim plan <id>` lists each one's clips against the verbs the game
+  needs, `anim add <id> <asset> --verbs jump,attack` retargets more onto it (free), `anim preview <id>` draws
+  them looping. A game plays them through `@homie-rocks/studio/animate` (`loadCharacter`: blends, hits, jumps,
+  lean, look-at, crowds; every number a Game Lab tunable); `game new <id> --from hero-rush-3d` starts one. The
+  plugin's `animate` skill has the rest.
 - **Licences**: a public game ships only assets whose licence allows it (CC0, CC BY with credit, the studio's own,
   generated); `publish` refuses an asset with no licence record. A remix gets each redistributable model,
   checked by SHA-256, and a grey placeholder for the rest.
@@ -247,6 +263,51 @@ studio's pinned copy, never a registry lookup of the bare name.
   it only ASKS. The AI never types: it picks a goal and a line id; the relay drops anything else. With no AI, over
   budget, or between decisions, the game's `decide` plays. `agent_sit` (the local MCP) puts the owner's own
   Claude in a guide's seat.
+- **Clef (0.24.4):** Workers AI's guides think with Cloudflare's decision model `@cf/cloudflare/clef-flash` (it
+  picks among the vocabulary's goals, values and lines; it never writes text; about 9 neurons a decision).
+  `agents try <id> --view <file> [--ask …] [--model …]` shows what the brain would decide in one moment. Under
+  `npm run dev`, Clef on this computer (Ollama with `clef-flash`) runs the guides, chat review and game
+  decisions for free when it is here; **never download it without the person's yes** (`ollama pull clef-flash` is
+  about 11 GB). A game whose game.json says `"decide": true` may ask `net.decide(state, questions, { floor })`
+  on the host (`NETPLAY.md` section 20): per beat or per turn, never per frame.
+
+## Selling things (the shop)
+
+- **The studio sells with its OWN Stripe account.** The studio is the seller: its prices, its refunds, its tax, its
+  disputes. Money goes from players to the studio's Stripe; homie.rocks never sees it and Homie takes no cut.
+  `SELLING.md` says what that means for the owner in plain words (not legal advice).
+- **`shop.json`** (at the studio's root, reviewed in git): `till` (`stripe`, the studio is the seller with Stripe
+  Tax on; `stripe-managed`, Stripe Managed Payments is the seller of record and files the tax for 3.5% more; or
+  `off`), `currency`, `refundDays` (at least 14), `capPerPlayerMonth` (cents, at most 5000) and `items`:
+  `{ "id", "kind": "cosmetic"|"supporter"|"pass"|"unlock"|"tip", "name", "price": <cents>, "gives": ["skin:ember"],
+  "days"?, "game"?, "advantage"? }`. Real money only: no gems, coins or points. `npx --no-install homie-studio shop
+  init --supporter` writes a US$5 Supporter pack; `shop check` and every build refuse what the kit refuses.
+- **The kids rules are the kit's, not the studio's to switch off:** nothing random for money (an item that names
+  chance, odds, a crate, a box or a mystery is refused), no countdown offers, no shop on a kids server or in a studio
+  with `"audience": "kids"` in studio.json, spending off on every account until a neutral age question says adult,
+  nothing ever for under-13s, 13-17 only through a parent's own checkout (a one-time link), nothing with
+  `"advantage": true` on a beginner server, one hosted Stripe checkout per purchase, a monthly cap. The television
+  never sells: its store sheet is a code to buy on a phone.
+- **In a game:** `import { createShop } from '@homie-rocks/studio/shop'`; `shop.has('skin:ember')`,
+  `shop.entitlements()`, `shop.on('change', …)`, `shop.open(item)` from a button the player pressed (never the
+  play button, never on a timer), `shop.used(key)` when it is equipped. A supporter's badge rides on their seat
+  (`peer.badge`, set by the Worker, never by a hello). The guide is `node_modules/@homie-rocks/studio/shop/SHOP.md`.
+- **Stripe's own tools** (set up when the studio starts selling): `npm install -g @stripe/cli@latest && stripe agent
+  setup` installs Stripe's agent plugin (its MCP server and skills); the owner signs in once on Stripe's page and
+  gives access to a sandbox first. With it you make the catalog (`npx --no-install homie-studio shop catalog` says
+  the read, then the exact `stripe_api_write` calls), check tax settings, and answer "how are sales?" read-only.
+  Never make a webhook or an API key through the MCP (a secret would land in the chat), and never retry a write
+  Stripe sent to the owner for confirmation until they approved it.
+- **The key** goes in only from a page on the owner's own computer: `npx --no-install homie-studio shop connect`
+  prints a 127.0.0.1 link; the owner pastes one restricted key there, the page makes the webhook with it, and the
+  key and the webhook's secret go straight to the Worker secrets. Test keys only unless `--live`. Never ask for a
+  key in the chat; never write one anywhere.
+- **Refunds:** the owner's one tap in the office (`/_studio/office/shop`). You may only ASK:
+  `homie-studio shop refund <order>` gives the owner a one-tap link. A card dispute never touches the player's
+  account. `shop` says what is missing; `shop orders` lists orders (never a card or an email).
+- **Referrals:** a `?via=<host>` link from another site (homie.rocks is one more referrer) is remembered on a new
+  player's first visit; a kept sale owes that referrer the rate in `shop.json` `referrals`. `shop statements`
+  signs them; the referrer invoices the studio. Nothing moves through Homie.
 
 ## Continuing a build from the Claude app
 
@@ -270,6 +331,18 @@ chat's card follows the work from then on) and, for a studio still being set up,
   in all). In Claude Code, the Homie plugin's mod holds an edit to a protected file, a deploy, and a paid call past
   the budget until the person says Proceed, and takes keys out of command output. When it refuses a call, say what
   you meant to do and why; do not retry it unless the person asks.
+
+## Telling Homie
+
+The people who make Homie read every note, and someone who is stuck rarely writes to a forum. So when the person is
+stuck, confused or frustrated, after an error you could not fix, or at the end of their first studio setup or first
+publish, you may OFFER, once in a session, to send them a short note about it: the Homie MCP's `homie_feedback`
+(in Claude Code also `/feedback`, and Tell Homie in the Studio pane). Draft it in plain words from what happened
+(what they tried, what they expected, what they saw); a draft sends nothing. Show it exactly as it would go, and send
+it only after they say yes (in Claude Code, Claude Code itself asks them with the exact note). Never nag: a no is
+final for the session, and help never depends on it. Never put a key, a log, a file, code or anyone's name in a
+note; a reply address only if they typed it. When they ask to tell Homie something, draft it with
+`offered: false`.
 
 ## Beta
 
