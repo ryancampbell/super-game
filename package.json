@@ -10,8 +10,8 @@
     "studio": "homie-studio"
   },
   "devDependencies": {
-    "@homie-rocks/studio": "0.22.0",
-    "wrangler": "4.145.0"
+    "@homie-rocks/studio": "^0.30.0",
+    "wrangler": "^4.145.0"
   },
   "cloudflare": {
     "label": "Homie studio",

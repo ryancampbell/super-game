@@ -1,0 +1,13 @@
+{
+  "knockRange": { "value": 110, "min": 60, "max": 200, "step": 1, "unit": "px", "group": "Knock", "note": "How near a body must be for a wave to bump it" },
+  "hitStopMs": { "value": 70, "min": 0, "max": 200, "step": 5, "unit": "ms", "group": "Knock", "note": "The hit lands: the bumped body holds, squashed and shaking, before it flies" },
+  "knockDistance": { "value": 185, "min": 40, "max": 400, "step": 5, "unit": "px", "group": "Knock", "note": "How far a bump sends a body, the same at any frame rate" },
+  "knockMs": { "value": 420, "min": 120, "max": 1000, "step": 10, "unit": "ms", "group": "Knock", "note": "How long the slide takes" },
+  "knockEase": { "value": 4, "min": 1, "max": 6, "step": 0.1, "group": "Knock", "note": "1 slides at one speed; higher leaves faster and eases into the stop" },
+  "squash": { "value": 0.35, "min": 0, "max": 0.8, "step": 0.01, "group": "Body", "note": "How much a flying body stretches along the hit, and squashes when it stops" },
+  "settleMs": { "value": 260, "min": 0, "max": 700, "step": 10, "unit": "ms", "group": "Body", "note": "The wobble after the stop (overlap)" },
+  "flashMs": { "value": 110, "min": 0, "max": 300, "step": 5, "unit": "ms", "group": "Hit", "note": "How long the bumped body flashes white" },
+  "shake": { "value": 7, "min": 0, "max": 24, "step": 0.5, "unit": "px", "group": "Hit", "note": "The camera's kick when you bump or are bumped" },
+  "sparks": { "value": 9, "min": 0, "max": 24, "step": 1, "group": "Hit", "note": "Sparks thrown off the hit" },
+  "ringMs": { "value": 900, "min": 200, "max": 2000, "step": 10, "unit": "ms", "group": "Wave", "note": "How long a wave's ring lasts" }
+}

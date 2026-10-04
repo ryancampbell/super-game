@@ -31,3 +31,8 @@ art/**/raw/
 *.blend
 *.blend1
 *.fbx
+
+# Stripe Projects (setup --via stripe-projects): credentials stay in its vault and the .env files it syncs, never in git.
+.env.*
+.projects/vault/
+.projects/cache/

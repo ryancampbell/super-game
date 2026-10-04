@@ -1,0 +1,25 @@
+{
+  "id": "volt-run",
+  "name": "Volt Run",
+  "blurb": "Grab the case, bank it on the pad, and don't get caught in the light. Sixty-second rounds that never stop.",
+  "genre": "arena",
+  "players": { "min": 1, "max": 8 },
+  "roundSeconds": 60,
+  "entry": "src/main.ts",
+  "netplay": { "v": 1, "public": true, "movement": "owner" },
+  "landing": {
+    "pitch": "One case. Bank it. Don't get lit.",
+    "about": "A night alley, eight couriers, one case. Stand on the drop to score. Bump the carrier and it pops loose. The searchlight cooks whoever is holding it.",
+    "howToPlay": [
+      "Grab the case. You are the only one who can score.",
+      "Stand on the DROP pad to bank points. The pad moves.",
+      "Bump the carrier and the case pops free.",
+      "The searchlight slows you and, if you stay, throws the case."
+    ],
+    "controls": {
+      "phone": "Drag to move. A second finger bumps.",
+      "computer": "WASD or arrows to move. Space bumps."
+    }
+  },
+  "from": { "starter": "gem-rush", "studio": "0.30.0" }
+}

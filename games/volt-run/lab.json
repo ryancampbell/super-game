@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "default": "knock",
+  "takes": {
+    "knock": {
+      "note": "Bump the dummy beside you",
+      "seconds": 2.2,
+      "seed": 7,
+      "stage": "dummy",
+      "device": "desk",
+      "fps": 60,
+      "view": "close",
+      "track": "speed",
+      "inputs": [
+        { "at": 0.5, "key": "Space", "hold": 0.1 }
+      ]
+    }
+  }
+}
