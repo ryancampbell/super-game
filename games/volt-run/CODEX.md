@@ -28,19 +28,20 @@ Public netplay, 1 to 8, owner movement. Rounds are 60 seconds, then a short brea
 
 ## Music and sound
 
-None yet. The alley is silent on purpose until there is a loop that fits.
+A small pulse in the browser: a bass tick, a lead while anyone is carrying, a horn when the surge starts, and a sting on a grab, a drop, and a bank. It starts on the first tap or key, because a browser will not play sound before that. Nothing is downloaded.
 
 ## Milestones
 
 - Playable round: grab, bank, bump, cook. Done.
 - Landing copy in game.json. Done.
-- A check with two browsers finishing a round.
+- A check with two browsers finishing a round. Done.
+- The surge: triple bank, a wider light, a hunting drone, and the pulse. Done.
 
 ## Open questions
 
-- A short chiptune sting on a bank and on a cook, if it stays out of the way of room chat.
 - Whether a second case would still read, or just turn it back into Gem Rush.
 
 ## Latest
 
+- 2026-10-04: The last twelve seconds are the surge. The pad pays triple, the light widens and cooks faster, and a drone that was walking the rim dives the carrier. Bots who are holding the case flee it. A local pulse and stings mark grabs, drops, banks, and the surge.
 - 2026-10-03: First playable. One case, a moving drop, a searchlight that slows and then drops. Built on the gem-rush netplay skeleton (knock, watch, skill dial, lab) after the studio moved to @homie-rocks/studio 0.30.0.
