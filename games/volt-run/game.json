@@ -1,20 +1,21 @@
 {
   "id": "volt-run",
   "name": "Volt Run",
-  "blurb": "Grab the case, bank it on the pad, and don't get caught in the light. Sixty-second rounds that never stop.",
+  "blurb": "Grab the case, bank it, and survive the surge. Sixty-second rounds that never stop.",
   "genre": "arena",
   "players": { "min": 1, "max": 8 },
   "roundSeconds": 60,
   "entry": "src/main.ts",
   "netplay": { "v": 1, "public": true, "movement": "owner" },
   "landing": {
-    "pitch": "One case. Bank it. Don't get lit.",
-    "about": "A night alley, eight couriers, one case. Stand on the drop to score. Bump the carrier and it pops loose. The searchlight cooks whoever is holding it.",
+    "pitch": "One case. Then the last twelve seconds come for you.",
+    "about": "A night alley, eight couriers, one case. Stand on the drop to score. Bump the carrier and it pops loose. The searchlight cooks whoever is holding it. With twelve seconds left the pad pays triple, the light widens, and a drone leaves the rim to take the case.",
     "howToPlay": [
       "Grab the case. You are the only one who can score.",
       "Stand on the DROP pad to bank points. The pad moves.",
       "Bump the carrier and the case pops free.",
-      "The searchlight slows you and, if you stay, throws the case."
+      "The searchlight slows you and, if you stay, throws the case.",
+      "The last twelve seconds are the surge: triple bank, a wider light, and a drone that hunts the carrier."
     ],
     "controls": {
       "phone": "Drag to move. A second finger bumps.",

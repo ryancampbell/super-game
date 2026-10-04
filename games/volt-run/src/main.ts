@@ -7,7 +7,8 @@
  * browser arrives, with two bots, and every human who arrives takes a bot's body. Every
  * browser renders the game itself. One browser is host.
  *
- * The knock, watch camera, skill dial, AI seats and Game Lab are the gem-rush starter's.
+ * The last twelve seconds are the surge: the pad pays triple, the light widens, and a drone
+ * leaves the rim to take the case off whoever is holding it.
  *
  * WATCH ANY PLAYER (contract revision 5): a watcher (/<game>/watch) never
  * takes a seat. `net.viewSeat` says whose view to draw; the camera follows that
@@ -53,6 +54,7 @@ const T = lab.tunables(tuning);
 const PAD_MS = 14_000;
 const BANK_EVERY = 0.42; // seconds on the pad, case in hand, per point
 const LIGHT_R = 188;
+const SURGE_MS = 12_000;
 /** The contract's 12 colours (PALETTE, NETPLAY.md section 3): a person wears their seat's, so the watch page's strip matches. */
 const colourOf = (slot: number, seat: number | null): string => PALETTE[(seat ?? slot) % PALETTE.length] as string;
 const BOT_NAMES = ['Rook', 'Vex', 'Moth', 'Kilo', 'Juno', 'Pike', 'Nyx', 'Ash'];
@@ -64,7 +66,7 @@ const label = (name: string, bot: boolean): string => (name.endsWith(AI_MARK) ? 
 /** Snapshot: bodies, plus the case (x, y, holder slot or -1, heat 0–100). */
 type P = [slot: number, seat: number, x: number, y: number, score: number, vx: number, vy: number];
 type C = [x: number, y: number, holder: number, heat: number];
-interface Snap { r: [n: number, phase: number, startedAt: number, endsAt: number]; p: P[]; c: C }
+interface Snap { r: [n: number, phase: number, startedAt: number, endsAt: number]; p: P[]; c: C; h: [x: number, y: number] }
 /**
  * Replica input: the avatar (owner movement) AND the stick intent (host movement), so either mode reads the same
  * frame. The helper stamps the reset epoch the replica has adopted.
@@ -77,7 +79,7 @@ interface Body extends Knock { slot: number; seat: number | null; name: string; 
 interface Cargo { x: number; y: number; holder: number; heat: number }
 /** Slow state: the drop pad (net.state('zone', ...)), so a joiner and a promoted host both have it. */
 interface Zone { n: number; x: number; y: number; r: number; until: number }
-interface Ckpt { round: RoundInfo; bodies: Body[]; cargo: Cargo; roster: Slot[]; tick: number; bank: number }
+interface Ckpt { round: RoundInfo; bodies: Body[]; cargo: Cargo; roster: Slot[]; tick: number; bank: number; hunter: { x: number; y: number } }
 
 /* --------------------------------------------------------------- the net */
 /**
@@ -105,6 +107,9 @@ let controlResets = 0;
 let predictionError = 0;
 /** Case grabs this round (the dial's `pickups` probe). */
 let pickups = new Map<number, number>();
+/** The rim drone. It idles on the edge, then dives the carrier for the surge. */
+let hunter = { x: W / 2, y: 70, vx: 0, vy: 0 };
+let hunterCd = 0;
 
 /* ------------------------------------------------ this browser's avatar */
 const me = { x: W / 2, y: H / 2, vx: 0, vy: 0, kvx: 0, kvy: 0, kx: 0, ky: 0, kat: 0, knockUntil: 0, has: false };
@@ -115,6 +120,7 @@ const viewSeat = (): number | null => (net.offline ? 0 : net.viewSeat);
 
 /* ------------------------------------------------------- replica view */
 const drawn = new Map<number, { x: number; y: number; seat: number; score: number; slot: number }>();
+let viewHunter = { x: W / 2, y: 70 };
 const waves: { x: number; y: number; at: number; colour: string; knock?: boolean }[] = [];
 let wavesSeen = 0;
 let knocksSeen = 0;
@@ -127,11 +133,22 @@ const spawnPoint = (i: number): { x: number; y: number } => {
   const a = (i / MAX_SLOTS) * Math.PI * 2;
   return { x: W / 2 + Math.cos(a) * 330, y: H / 2 + Math.sin(a) * 250 };
 };
-/** The searchlight is a function of the shared clock, so every browser draws the same one. */
+/** Milliseconds left in the surge (the last twelve seconds), or 0. Same clock on every screen. */
+function surgeLeft(now: number): number {
+  if (!round || round.phase !== 'live') return 0;
+  const left = round.endsAt - now;
+  return left > 0 && left <= SURGE_MS ? left : 0;
+}
+/** The searchlight is a function of the shared clock, so every browser draws the same one. Wider and faster in the surge. */
 function lightAt(now: number): { x: number; y: number; r: number } {
+  const surge = surgeLeft(now) > 0;
   const t = now / 1000;
-  const a = t * 0.62;
-  return { x: W / 2 + Math.cos(a) * 390 + Math.sin(t * 1.15) * 70, y: H / 2 + Math.sin(a * 0.86) * 250, r: LIGHT_R };
+  const a = t * (surge ? 1.45 : 0.62);
+  return {
+    x: W / 2 + Math.cos(a) * (surge ? 280 : 390) + Math.sin(t * 1.15) * 70,
+    y: H / 2 + Math.sin(a * 0.86) * (surge ? 180 : 250),
+    r: surge ? LIGHT_R + 78 : LIGHT_R,
+  };
 }
 
 function bodyFor(slot: Slot): Body {
@@ -176,6 +193,8 @@ function startRound(n: number): void {
   }
   cargo = { x: W / 2, y: H / 2, holder: -1, heat: 0 };
   bank = 0;
+  hunter = { x: W / 2, y: 70, vx: 0, vy: 0 };
+  hunterCd = 0;
   pickups = new Map();
   sight.clear();
   round = { n, phase: 'live', startedAt: now, endsAt: now + ROUND_MS };
@@ -230,6 +249,7 @@ function restore(e: RoleChange<Snap, Ckpt>): void {
     bodies = new Map(ck.bodies.map((b) => [b.slot, { ...b }]));
     cargo = { ...ck.cargo };
     bank = ck.bank;
+    if (ck.hunter) { hunter.x = ck.hunter.x; hunter.y = ck.hunter.y; hunter.vx = 0; hunter.vy = 0; }
     round = ck.round;
     tick = ck.tick;
   } else {
@@ -251,6 +271,7 @@ function restore(e: RoleChange<Snap, Ckpt>): void {
     }
     const [cx, cy, holder, heat] = s.d.c;
     cargo = { x: cx, y: cy, holder, heat };
+    if (s.d.h) { hunter.x = s.d.h[0]; hunter.y = s.d.h[1]; hunter.vx = 0; hunter.vy = 0; }
     const [n, ph, startedAt, endsAt] = s.d.r;
     round = { n, phase: ph ? 'over' : 'live', startedAt, endsAt, ...(round?.n === n && round.results ? { results: round.results } : {}) };
     tick = Math.max(tick, s.k);
@@ -269,6 +290,7 @@ function checkpoint(): Ckpt {
     roster: roster.toJSON(),
     tick,
     bank,
+    hunter: { x: hunter.x, y: hunter.y },
   };
 }
 
@@ -536,6 +558,9 @@ function aimJitter(s: Skill): number { return (Math.random() - 0.5) * 200 * s.ai
 /** Where this bot heads: the pad, the carrier, or the loose case. */
 function pickTarget(b: Body, s: Skill): { x: number; y: number } {
   const jx = aimJitter(s); const jy = aimJitter(s);
+  if (surgeLeft(net.now()) > 0 && cargo.holder === b.slot && Math.hypot(hunter.x - b.x, hunter.y - b.y) < 300) {
+    return { x: b.x - (hunter.x - b.x) + jx * 0.25, y: b.y - (hunter.y - b.y) + jy * 0.25 };
+  }
   if (cargo.holder === b.slot && zone) {
     const wander = (1 - s.positioning) * 180;
     return { x: zone.x + jx * 0.35 + (Math.random() - 0.5) * wander, y: zone.y + jy * 0.35 + (Math.random() - 0.5) * wander };
@@ -615,6 +640,7 @@ function stepHost(dt: number): void {
   const now = net.now();
   if (round && round.phase === 'live') {
     stepCase(now, dt);
+    stepHunter(now, dt);
     if (now >= round.endsAt) endRound();
   } else if (round && round.phase === 'over' && now >= round.endsAt) startRound(round.n + 1);
   if (net.snapshotDue()) net.snapshot(buildSnap(), tick);
@@ -645,11 +671,43 @@ function stepCase(now: number, dt: number): void {
   if (b.knockUntil > now) return;
   const L = lightAt(now);
   const lit = Math.hypot(b.x - L.x, b.y - L.y) < L.r;
-  cargo.heat = Math.max(0, Math.min(100, cargo.heat + (lit ? 52 : -40) * dt));
+  const surge = surgeLeft(now) > 0;
+  cargo.heat = Math.max(0, Math.min(100, cargo.heat + (lit ? (surge ? 78 : 52) : -40) * dt));
   if (cargo.heat >= 100) { knock(b, L.x, L.y, -1); return; }
   if (zone && Math.hypot(b.x - zone.x, b.y - zone.y) < zone.r) {
+    const every = surge ? BANK_EVERY / 3 : BANK_EVERY;
     bank += dt;
-    while (bank >= BANK_EVERY) { bank -= BANK_EVERY; b.score += 1; }
+    while (bank >= every) { bank -= every; b.score += 1; }
+  }
+}
+
+/** Host: the drone walks the rim, then hunts the carrier for the surge and knocks the case loose. */
+function stepHunter(now: number, dt: number): void {
+  if (lab.stage === 'dummy') return;
+  const surge = surgeLeft(now) > 0;
+  let tx = W / 2; let ty = 70;
+  if (surge) {
+    if (cargo.holder >= 0) { const b = bodies.get(cargo.holder); if (b) { tx = b.x; ty = b.y; } }
+    else { tx = cargo.x; ty = cargo.y; }
+  } else {
+    const a = now / 1000 * 0.45;
+    tx = W / 2 + Math.cos(a) * (W / 2 - 70);
+    ty = H / 2 + Math.sin(a) * (H / 2 - 70);
+  }
+  const dx = tx - hunter.x; const dy = ty - hunter.y; const dist = Math.hypot(dx, dy) || 1;
+  const spd = surge ? 560 : 120;
+  const k = Math.min(1, dt * (surge ? 6 : 2));
+  hunter.vx += ((dx / dist) * spd - hunter.vx) * k;
+  hunter.vy += ((dy / dist) * spd - hunter.vy) * k;
+  hunter.x += hunter.vx * dt; hunter.y += hunter.vy * dt;
+  if (!surge || now < hunterCd) return;
+  for (const b of bodies.values()) {
+    if (b.knockUntil > now) continue;
+    if (Math.hypot(b.x - hunter.x, b.y - hunter.y) < R_AV + 18) {
+      knock(b, hunter.x, hunter.y, -1);
+      hunterCd = now + 780;
+      break;
+    }
   }
 }
 
@@ -659,6 +717,7 @@ function buildSnap(): Snap {
     r: [r.n, r.phase === 'over' ? 1 : 0, r.startedAt, r.endsAt],
     p: [...bodies.values()].map((b) => [b.slot, b.seat ?? -1, q(b.x, 1), q(b.y, 1), b.score, q(b.vx, 0), q(b.vy, 0)] as P),
     c: [q(cargo.x, 0), q(cargo.y, 0), cargo.holder, q(cargo.heat, 0)],
+    h: [q(hunter.x, 0), q(hunter.y, 0)],
   };
 }
 
@@ -684,6 +743,11 @@ function stepReplica(dt: number): void {
     drawn.set(pb[0], { slot: pb[0], seat: pb[1], x: lerp(pa[2], pb[2], smp.alpha), y: lerp(pa[3], pb[3], smp.alpha), score: pb[4] });
   }
   const [n, ph, startedAt, endsAt] = smp.b.d.r;
+  if (smp.b.d.h) {
+    const ha = smp.a.d.h ?? smp.b.d.h;
+    viewHunter.x = lerp(ha[0], smp.b.d.h[0], smp.alpha);
+    viewHunter.y = lerp(ha[1], smp.b.d.h[1], smp.alpha);
+  }
   if (!round || round.n !== n || (round.phase === 'over') !== (ph === 1)) {
     const kept = net.roundInfo && net.roundInfo.n === n ? net.roundInfo : null;
     round = kept ?? { n, phase: ph ? 'over' : 'live', startedAt, endsAt };
@@ -867,6 +931,109 @@ function caseDrawAt(list: { slot: number; x: number; y: number }[]): { x: number
   const who = list.find((a) => a.slot === c.holder);
   return { x: who?.x ?? c.x, y: who?.y ?? c.y, held: true, heat: c.heat };
 }
+function hunterNow(): { x: number; y: number } {
+  return hosting ? hunter : viewHunter;
+}
+const rain = Array.from({ length: 64 }, () => ({ x: Math.random() * W, y: Math.random() * H, v: 420 + Math.random() * 260 }));
+const audio: { ctx: AudioContext | null; master: GainNode | null; next: number; step: number } = { ctx: null, master: null, next: 0, step: 0 };
+function ensureAudio(): AudioContext | null {
+  const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AC) return null;
+  if (!audio.ctx) {
+    audio.ctx = new AC();
+    audio.master = audio.ctx.createGain();
+    audio.master.gain.value = 0.16;
+    audio.master.connect(audio.ctx.destination);
+  }
+  if (audio.ctx.state === 'suspended') void audio.ctx.resume();
+  return audio.ctx;
+}
+addEventListener('pointerdown', () => { ensureAudio(); }, { passive: true });
+addEventListener('keydown', () => { ensureAudio(); });
+function tone(freq: number, dur: number, type: OscillatorType, gain: number, when: number, slide?: number): void {
+  const ctx = audio.ctx; const master = audio.master;
+  if (!ctx || !master) return;
+  const o = ctx.createOscillator(); const g = ctx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(Math.max(40, freq), when);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, slide), when + dur);
+  g.gain.setValueAtTime(gain, when);
+  g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+  o.connect(g); g.connect(master);
+  o.start(when); o.stop(when + dur + 0.02);
+}
+function sting(kind: 'take' | 'drop' | 'bank' | 'surge'): void {
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  if (kind === 'take') { tone(523, 0.08, 'square', 0.1, t); tone(784, 0.12, 'square', 0.08, t + 0.06); }
+  else if (kind === 'drop') tone(180, 0.2, 'sawtooth', 0.09, t, 70);
+  else if (kind === 'bank') { tone(880, 0.06, 'square', 0.07, t); tone(1318, 0.09, 'square', 0.05, t + 0.05); }
+  else { tone(110, 0.45, 'sawtooth', 0.1, t, 440); tone(220, 0.45, 'square', 0.06, t, 880); }
+}
+/** A small pulse that climbs when someone is carrying, and doubles in the surge. Local only. */
+function music(): void {
+  const ctx = audio.ctx; const master = audio.master;
+  if (!ctx || !master || ctx.state !== 'running' || round?.phase !== 'live') return;
+  const surge = surgeLeft(net.now()) > 0;
+  const t = ctx.currentTime;
+  if (audio.next < t) audio.next = t + 0.02;
+  const beat = surge ? 0.25 : 0.4;
+  const carrying = caseNow().holder >= 0;
+  while (audio.next < t + 0.1) {
+    const step = audio.step;
+    audio.step += 1;
+    const root = surge ? 98 : 73;
+    if (step % 2 === 0) tone(root, 0.1, 'square', 0.07, audio.next);
+    if (step % 4 === 0) tone(root / 2, 0.18, 'triangle', 0.1, audio.next);
+    if (carrying && step % 2 === 1) {
+      const lead = [0, 3, 7, 10, 12, 7, 3, 10][step % 8] as number;
+      tone(root * 4 * 2 ** (lead / 12), 0.14, 'square', surge ? 0.055 : 0.035, audio.next);
+    }
+    audio.next += beat;
+  }
+}
+const pops: { x: number; y: number; text: string; at: number; colour: string }[] = [];
+let momentRound = -1;
+let seenHolder = -2;
+const seenScores = new Map<number, number>();
+let surgeSung = false;
+function shout(x: number, y: number, text: string, colour: string): void {
+  pops.push({ x, y, text, at: performance.now(), colour });
+  if (pops.length > 24) pops.shift();
+}
+/** Local juice: a grab, a drop, a bank, and the surge horn. Scores come from the snapshot, so every screen agrees. */
+function noticeMoments(list: { slot: number; x: number; y: number; mine: boolean }[]): void {
+  const c = caseNow();
+  const n = round?.n ?? -1;
+  if (n !== momentRound) {
+    momentRound = n; seenHolder = c.holder; surgeSung = false;
+    seenScores.clear();
+    return;
+  }
+  if (seenHolder !== -2 && c.holder !== seenHolder) {
+    const who = list.find((a) => a.slot === (c.holder >= 0 ? c.holder : seenHolder));
+    const at = who ?? { x: c.x, y: c.y };
+    if (c.holder >= 0 && seenHolder < 0) { shout(at.x, at.y - 36, 'TAKEN', '#ffd166'); sting('take'); }
+    else if (c.holder < 0) { shout(at.x, at.y - 36, 'DROPPED', '#ff5b3a'); sting('drop'); }
+    else { shout(at.x, at.y - 36, 'STOLEN', '#ff3bd4'); sting('take'); }
+  }
+  seenHolder = c.holder;
+  const scores = new Map<number, number>();
+  if (hosting) for (const b of bodies.values()) scores.set(b.slot, b.score);
+  else for (const d of drawn.values()) scores.set(d.slot, d.score);
+  for (const [slot, score] of scores) {
+    const prev = seenScores.get(slot);
+    seenScores.set(slot, score);
+    if (prev === undefined || score <= prev) continue;
+    const who = list.find((a) => a.slot === slot);
+    if (!who) continue;
+    const surge = surgeLeft(net.now()) > 0;
+    shout(who.x, who.y - 28, surge ? `+${score - prev}` : `+${score - prev}`, surge ? '#ffe07a' : '#7df0ff');
+    if (who.mine) sting('bank');
+  }
+  if (!surgeSung && surgeLeft(net.now()) > 0 && round?.phase === 'live') { surgeSung = true; sting('surge'); shout(W / 2, H / 2 - 80, 'SURGE', '#ffe07a'); }
+}
 function draw(t: number): void {
   const cw = innerWidth; const ch = innerHeight;
   const phone = Math.min(cw, ch) <= 540;
@@ -902,20 +1069,43 @@ function draw(t: number): void {
   for (let x = 0; x <= W; x += 100) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
   for (let y = 0; y <= H; y += 100) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(125,240,255,0.55)'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, W, H);
-  // searchlight: standing in it while carrying cooks the case
+  ctx.strokeStyle = surgeLeft(net.now()) > 0 ? 'rgba(255,210,90,0.9)' : 'rgba(125,240,255,0.55)'; ctx.lineWidth = 4; ctx.strokeRect(0, 0, W, H);
+  // rain, drawn only
+  ctx.strokeStyle = 'rgba(186,220,255,0.16)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (const drop of rain) {
+    drop.y += drop.v * 0.016; if (drop.y > H) { drop.y = 0; drop.x = Math.random() * W; }
+    ctx.moveTo(drop.x, drop.y); ctx.lineTo(drop.x - 10, drop.y + 22);
+  }
+  ctx.stroke();
+  // searchlight: a soft cone into the circle you actually cook in
   const beam = lightAt(net.now());
+  const surging = surgeLeft(net.now()) > 0;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const shaft = ctx.createLinearGradient(beam.x, beam.y - beam.r * 1.7, beam.x, beam.y);
+  shaft.addColorStop(0, 'rgba(255,250,230,0)');
+  shaft.addColorStop(1, surging ? 'rgba(255,150,80,0.45)' : 'rgba(255,244,210,0.34)');
+  ctx.fillStyle = shaft;
+  ctx.beginPath();
+  ctx.moveTo(beam.x, beam.y - beam.r * 1.7);
+  ctx.lineTo(beam.x - beam.r * 0.72, beam.y);
+  ctx.lineTo(beam.x + beam.r * 0.72, beam.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
   const beamG = ctx.createRadialGradient(beam.x, beam.y, 8, beam.x, beam.y, beam.r);
-  beamG.addColorStop(0, 'rgba(255,246,214,0.22)'); beamG.addColorStop(0.55, 'rgba(255,220,140,0.08)'); beamG.addColorStop(1, 'rgba(255,220,140,0)');
+  beamG.addColorStop(0, surging ? 'rgba(255,120,80,0.28)' : 'rgba(255,246,214,0.22)');
+  beamG.addColorStop(0.55, 'rgba(255,220,140,0.08)'); beamG.addColorStop(1, 'rgba(255,220,140,0)');
   ctx.fillStyle = beamG; ctx.beginPath(); ctx.arc(beam.x, beam.y, beam.r, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(255,236,190,0.35)'; ctx.lineWidth = 2; ctx.setLineDash([6, 8]); ctx.stroke(); ctx.setLineDash([]);
-  // drop pad (keyed state): bank the case by standing here
+  ctx.strokeStyle = surging ? 'rgba(255,140,90,0.55)' : 'rgba(255,236,190,0.35)'; ctx.lineWidth = 2; ctx.setLineDash([6, 8]); ctx.stroke(); ctx.setLineDash([]);
+  // drop pad (keyed state): bank the case by standing here. Triple during the surge.
   if (zone) {
-    const pulse = 0.5 + 0.5 * Math.sin(t / 280);
-    ctx.fillStyle = `rgba(255,59,212,${0.08 + 0.06 * pulse})`; ctx.beginPath(); ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,59,212,0.85)'; ctx.lineWidth = 3; ctx.setLineDash([12, 8]); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(255,210,245,0.9)'; ctx.font = '800 15px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('DROP', zone.x, zone.y + 5);
+    const pulse = 0.5 + 0.5 * Math.sin(t / (surging ? 140 : 280));
+    ctx.fillStyle = `rgba(255,59,212,${0.08 + 0.08 * pulse})`; ctx.beginPath(); ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2); ctx.fill();
+    if (surging) { ctx.globalAlpha = 0.45; ctx.beginPath(); ctx.arc(zone.x, zone.y, zone.r + 18 + 8 * pulse, 0, Math.PI * 2); ctx.strokeStyle = '#ffe07a'; ctx.lineWidth = 2; ctx.stroke(); ctx.globalAlpha = 1; }
+    ctx.strokeStyle = 'rgba(255,59,212,0.85)'; ctx.lineWidth = 3; ctx.setLineDash([12, 8]); ctx.beginPath(); ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = surging ? '#ffe07a' : 'rgba(255,210,245,0.9)'; ctx.font = '800 15px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(surging ? 'DROP ×3' : 'DROP', zone.x, zone.y + 5);
   }
 
   // waves
@@ -947,6 +1137,8 @@ function draw(t: number): void {
   const tags: LabelIn[] = [];
   const heads = new Map<number, { x: number; y: number; seat: number; mine: boolean }>();
   const viewAt = list.find((a) => a.mine) ?? null;
+  noticeMoments(list);
+  const carrier = caseNow().holder;
   for (const a of list) {
     const colour = colourOf(a.slot, a.bot ? null : a.seat);
     const fx = bodyFx(a.slot, t);
@@ -957,6 +1149,12 @@ function draw(t: number): void {
     ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.arc(0, 0, R_AV * 0.45, 0, Math.PI * 2); ctx.fill();
     if (fx.flash > 0) { ctx.globalAlpha = fx.flash; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, R_AV, 0, Math.PI * 2); ctx.fill(); }
     ctx.restore();
+    if (a.slot === carrier) {
+      ctx.strokeStyle = a.mine && caseNow().heat > 66 ? '#ff5b3a' : '#ffd166';
+      ctx.globalAlpha = 0.85; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(a.x, a.y, R_AV + 12 + 3 * Math.sin(t / 90), 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     if (a.mine) { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(a.x, a.y, R_AV + 7, 0, Math.PI * 2); ctx.stroke(); }
     ctx.globalAlpha = 1;
     const text = a.mine && !net.watching ? 'You' : label(a.name, a.bot);
@@ -976,6 +1174,25 @@ function draw(t: number): void {
   ctx.strokeStyle = box.heat > 66 ? '#ff5b3a' : '#ffd166'; ctx.lineWidth = 2.5; ctx.strokeRect(-12, -8, 24, 16);
   ctx.fillStyle = '#fff1c2'; ctx.fillRect(-4, -3, 8, 6);
   ctx.restore();
+  const drone = hunterNow();
+  const droneSurge = surgeLeft(net.now()) > 0;
+  ctx.save();
+  ctx.translate(drone.x, drone.y); ctx.rotate(t / (droneSurge ? 90 : 220));
+  ctx.fillStyle = droneSurge ? 'rgba(255,70,50,0.35)' : 'rgba(255,59,100,0.2)';
+  ctx.beginPath(); ctx.arc(0, 0, droneSurge ? 34 : 22, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = droneSurge ? '#ff3b3b' : '#8a2048';
+  ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(15, 0); ctx.lineTo(0, 15); ctx.lineTo(-15, 0); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.font = '800 20px ui-sans-serif, system-ui, sans-serif'; ctx.textAlign = 'center';
+  for (let i = pops.length - 1; i >= 0; i -= 1) {
+    const p = pops[i] as (typeof pops)[number];
+    const age = (t - p.at) / 800;
+    if (age > 1) { pops.splice(i, 1); continue; }
+    ctx.globalAlpha = 1 - age; ctx.fillStyle = p.colour;
+    ctx.fillText(p.text, p.x, p.y - age * 52);
+  }
+  ctx.globalAlpha = 1;
   drawSparks(t, scale);
   lab.draw(ctx, scale);
   ctx.restore();
@@ -1028,13 +1245,19 @@ function hud(cw: number, ch: number, phone: boolean, list: { slot: number; name:
   ctx.font = `700 ${phone ? 20 : 24}px ui-sans-serif, system-ui, sans-serif`;
   const left = r ? Math.max(0, Math.ceil((r.endsAt - now) / 1000)) : 0;
   const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-  ctx.fillText(r ? (r.phase === 'live' ? `Round ${r.n} · ${clock}` : `Next round in ${left}`) : 'Joining…', pad, top + 18);
+  const surging = surgeLeft(now) > 0 && r?.phase === 'live';
+  ctx.fillStyle = surging ? '#ffe07a' : '#e8ecf5';
+  ctx.fillText(r ? (r.phase === 'live' ? `${surging ? 'SURGE' : `Round ${r.n}`} · ${clock}` : `Next round in ${left}`) : 'Joining…', pad, top + 18);
   const box = caseNow();
   const mineSlot = list.find((a) => a.mine)?.slot;
   const status = box.holder < 0 ? 'Case is loose' : mineSlot !== undefined && box.holder === mineSlot ? 'You have the case' : 'Someone has the case';
   ctx.font = `600 ${phone ? 13 : 15}px ui-sans-serif, system-ui, sans-serif`;
   ctx.fillStyle = box.holder < 0 ? '#ffd166' : mineSlot !== undefined && box.holder === mineSlot ? '#ffffff' : 'rgba(232,236,245,0.8)';
     ctx.fillText(status, pad, top + 40);
+    if (surging) {
+      ctx.fillStyle = '#ffe07a';
+      ctx.fillText(phone ? '×3 bank · drone is in' : 'Triple bank · the drone is hunting', pad, top + (mineSlot !== undefined && box.holder === mineSlot ? 74 : 58));
+    }
     if (mineSlot !== undefined && box.holder === mineSlot) {
       const bw = phone ? 120 : 160;
       ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fillRect(pad, top + 50, bw, 6);
@@ -1089,6 +1312,7 @@ function frame(t: number): void {
   if (hosting) stepHost(dt);
   else stepReplica(dt);
   if (lab.on) labReport(dt);
+  music();
   draw(t);
   frames += 1;
   requestAnimationFrame(frame);
